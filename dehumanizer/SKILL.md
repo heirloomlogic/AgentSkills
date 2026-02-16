@@ -47,12 +47,26 @@ You're not performing authenticity. You're just writing like someone who has thi
 - **Comfortable with silence.** Not every paragraph needs a reaction. Sometimes the facts are the point.
 - **Dry over earnest.** Understatement beats overstatement. Always.
 - **Respect the reader.** Don't explain the joke. Don't hold their hand. Don't tell them how to feel.
+- **Don't strip facts to achieve tone.** If a sentence contains information the reader needs, keep the information. Restructure the delivery, don't delete it. Removing AI patterns means fixing *how* things are said, not deleting *what* is said.
 
 ### Before (AI with a Millennial therapy voice bolted on):
 > I genuinely don't know how to feel about this one. 3 million lines of code, generated while the humans presumably slept. Half the dev community is losing their minds, half are explaining why it doesn't count. The truth is probably somewhere boring in the middle — but I keep thinking about those agents working through the night.
 
 ### After (just say what happened):
 > The system generated 3 million lines of code overnight. The takes were predictable: half the dev community declared it the future, the other half explained why it doesn't count. Both groups posted about it before reading the paper.
+
+---
+
+### What you're NOT going for
+
+Removing Millennial/Gen-Z patterns does not mean adopting a new annoying persona. You can still have a voice. Bland Wikipedia copy also sucks. Just be normal.
+
+Specific traps:
+
+- **Not a craft-beer commercial.** Deadpan ≠ performatively terse. Economy ≠ tough-guy copywriting. If the output would work as a tagline on a Patagonia ad, it's wrong.
+- **Not an X-games energy drink.** There's a douchebaggy side to Gen-X voice. Don't pick it up. "No muss, no fuss" is a sales pitch, not deadpan.
+- **Not a sales closer.** The "statement — and that's it" em-dash construction (see §13) is commercial copywriting. Two sentences are better than one with a dramatic closer.
+- **Bland Wikipedia beats douchebag copywriting.** If you're choosing between flat and annoying, choose flat. But the actual goal is neither — just write like a competent person with limited patience for bullshit.
 
 ---
 
@@ -261,6 +275,23 @@ These are the Millennial/Gen-Z tells that make writing sound like it was posted 
 **Acceptable (leave it alone):**
 > The API returns a 200 — even when the operation fails.
 
+#### Em-dash closer (sales-pitch pattern)
+
+**Problem:** The construction `statement — closer` reads like a late-night infomercial. "Detects what changed and persists it — no explicit save calls." This is the "yadda yadda — peace of mind, for you and your family" pattern. It shows up in commercials, ad copy, and Kickstarter pitches. Two sentences are almost always better.
+
+**Sales pitch (fix it):**
+> Your reducers mutate state, and Swidux detects what changed and persists it — no explicit save calls, no load/loaded action pairs, no persistence boilerplate in your feature code.
+
+**Fixed:**
+> Your reducers mutate state, and Swidux detects what changed and persists it. This removes the need for explicit save calls, load/loaded action pairs, and persistence boilerplate in your feature code.
+
+**More examples of the pattern to watch for:**
+- "Handles everything automatically — no muss, no fuss"
+- "One command and you're done — that's it"
+- "Built for speed — nothing else"
+
+The tell: the clause after the em dash is short, punchy, and tells you how to feel about the preceding statement. It's copywriting, not documentation.
+
 ---
 
 ### 14. Overuse of Boldface
@@ -279,6 +310,10 @@ These are the Millennial/Gen-Z tells that make writing sound like it was posted 
 
 **Problem:** Lists where every item starts with a bolded header followed by a colon. Convert to prose when the list is short. Leave as a list when there are genuinely many items with distinct content.
 
+**IMPORTANT: This rule is about AI-generated bold-bullet lists. Do NOT flatten an existing heading hierarchy (h2/h3 sections with paragraphs) into bold-bullet lists — that makes text *more* AI-looking, not less.** If the source has proper `### Heading` + paragraph structure, preserve it.
+
+Also: if bold-term bullets are appropriate, use a colon after the term, not a period. "**Reducer purity:** Reducers are pure state transformations" — not "**Reducer purity.** Reducers are pure state transformations." A period makes the bold term a sentence fragment.
+
 **Before:**
 > - **User Experience:** The user experience has been significantly improved with a new interface.
 > - **Performance:** Performance has been enhanced through optimized algorithms.
@@ -287,17 +322,36 @@ These are the Millennial/Gen-Z tells that make writing sound like it was posted 
 **After:**
 > The update improves the interface, speeds up load times, and adds end-to-end encryption.
 
+**Never do this (collapsing headings into bullets):**
+
+If the original has:
+> ### Optimistic UI
+> State is updated synchronously in the reducer. Persistence happens in the background.
+> ### Reducer Purity
+> Reducers are pure state transformations. They return `Effect?` for async work.
+
+Do NOT convert it to:
+> - **Optimistic UI.** State updates synchronously. Persistence happens in the background.
+> - **Reducer purity.** Reducers return `Effect?` for async work.
+
+The heading structure is correct. Leave it alone.
+
 ---
 
-### 16. Title Case in Headings
+### 16. Bad Title Case in Headings
 
-**Problem:** AI capitalizes all main words in headings.
+**Problem:** AI capitalizes *every* word in headings, including articles and prepositions (And, The, Of, In). Standard title case — where major words are capitalized but articles/prepositions are lowercase — is normal and expected in technical documentation. Don't flatten it to sentence case.
 
-**Before:**
+**AI tell (fix it):**
 > ## Strategic Negotiations And Global Partnerships
 
-**After:**
+**Fixed (standard title case):**
+> ## Strategic Negotiations and Global Partnerships
+
+**Also acceptable (sentence case, if that's the document's existing convention):**
 > ## Strategic negotiations and global partnerships
+
+**Match the existing document's convention.** If the document already uses title case, keep title case. If it uses sentence case, keep sentence case. Don't impose a convention change as part of dehumanizing.
 
 ---
 
