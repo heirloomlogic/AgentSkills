@@ -134,6 +134,25 @@ struct AppState: Sendable {
 }
 ```
 
+### 9. Guard `@Observable` Writes in `send()` with Equality Checks
+`@Observable` fires change notifications on every property `set`, even when the value is identical. Unconditional writes after every dispatch cause cascading SwiftUI re-renders that can create infinite loops. Always guard:
+
+```swift
+if items != state.items { items = state.items }
+if ui != state.ui       { ui = state.ui }
+```
+
+### 10. Use `merge(from:preferExisting:)` for Re-hydration, Not Replacement
+After initial startup, never assign a fresh `EntityStore(fromDB)` to a property — this destroys enriched in-memory state loaded lazily. Use `merge()` instead:
+
+```swift
+var merged = EntityStore(allFromDB)
+merged.merge(from: existingStore) { existing, incoming in
+    existing.richData != nil && incoming.richData == nil
+}
+store.property = merged
+```
+
 ---
 
 ## EntityStore API
