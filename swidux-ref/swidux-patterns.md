@@ -1,6 +1,6 @@
 # Swidux Code Patterns Reference
 
-Copy-paste ready templates derived from [Adagio](file:///Users/sessions/HeirloomLogic/adagio), the canonical Swidux reference app. All patterns use:
+Copy-paste ready templates derived from [Adagio](file:///Users/sessions/HeirloomLogic/Adagio), the canonical Swidux reference app. All patterns use:
 - **iOS 18+ / macOS 15+** (`@Observable`, `@Environment(Type.self)`)
 - **Swift 6.2+ Approachable Concurrency** (minimal explicit `@MainActor`)
 - **Swift Testing** (`@Test`, `@Suite`)
@@ -285,14 +285,14 @@ struct ItemBrowserReducer: SwiduxReducer {
             state.ui.selectedItemID = id
             // Persist selection preference via effect
             let preferences = environment.preferences
-            return { _ in
+            return Effect { _ in
                 await preferences.setSelectedItemID(id)
             }
 
         case .restoreSelection:
             let preferences = environment.preferences
             let allItems = state.items
-            return { send in
+            return Effect { send in
                 if let id = await preferences.getSelectedItemID(),
                    allItems.contains(id) {
                     await send(.itemBrowser(.selectItem(id)))
@@ -310,7 +310,7 @@ struct ItemBrowserReducer: SwiduxReducer {
             )
             state.items[newItem.id] = newItem
             state.ui.selectedItemID = newItem.id
-            return { _ in
+            return Effect { _ in
                 await analytics.track(event: .itemCreated)
             }
 
@@ -321,7 +321,7 @@ struct ItemBrowserReducer: SwiduxReducer {
             }
             // Remove from state — middleware detects deletion and persists
             state.items[id] = nil
-            return { _ in
+            return Effect { _ in
                 await analytics.track(event: .itemDeleted)
             }
 
@@ -475,15 +475,22 @@ final class AppStore: SwiduxDispatcher {
         // Drain changelogs and schedule persistence
         persistence.afterReduce(state: &state)
 
-        // Unpack back to observable properties
-        self.items = state.items
-        self.tags  = state.tags
-        self.ui    = state.ui
+        // Unpack back to observable properties — guard with equality checks.
+        // @Observable fires change notifications on every `set`, even if the
+        // value is identical. Unconditional writes cause cascading re-renders.
+        if items != state.items { items = state.items }
+        if tags != state.tags   { tags = state.tags }
+        if ui != state.ui       { ui = state.ui }
 
+        // runEffect uses Task { @concurrent in } to run the effect
+        // body off the MainActor. Never use a bare Task { } here —
+        // inside an @MainActor class it inherits MainActor isolation,
+        // keeping the entire effect on the main thread.
         if let effect {
-            Task { [weak self] in
-                await effect { action in self?.send(action) }
+            let send: Send = { [weak self] action in
+                self?.send(action)
             }
+            runEffect(effect, send: send)
         }
     }
 
@@ -564,8 +571,10 @@ struct ItemListView: View {
     @Environment(AppStore.self) private var store
 
     var body: some View {
+        // Sort once per body evaluation — avoid sorting inline in ForEach
+        let sorted = store.items.values.sorted { $0.sortIndex < $1.sortIndex }
         List {
-            ForEach(store.items.values.sorted(by: { $0.sortIndex < $1.sortIndex })) { item in
+            ForEach(sorted) { item in
                 ItemRow(item: item)
             }
         }

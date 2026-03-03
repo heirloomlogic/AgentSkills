@@ -153,6 +153,26 @@ merged.merge(from: existingStore) { existing, incoming in
 store.property = merged
 ```
 
+### 11. Keep Reducers Lightweight
+Reducers run synchronously on the MainActor. Any O(n²) work — nested loops, repeated linear scans, large sorts — blocks the UI thread until it completes. Move heavy computation into an `Effect` and dispatch the result back as an action.
+
+### 12. Never Block Inside Effects
+Effects run on Swift concurrency's cooperative thread pool (via `Task { @concurrent in }`). The pool has a small, fixed number of threads. **Synchronous blocking calls** inside an effect — `Process.waitUntilExit()`, `DispatchSemaphore.wait()`, `Thread.sleep()` — hold a thread hostage. If enough threads block, the pool starves and the MainActor freezes (beachball).
+
+```swift
+// ❌ Blocks a cooperative thread
+process.run()
+process.waitUntilExit()
+
+// ✅ Yields the thread while waiting
+try await withCheckedThrowingContinuation { continuation in
+    process.terminationHandler = { _ in continuation.resume() }
+    try process.run()
+}
+```
+
+Common offenders: `Process.waitUntilExit()`, `DispatchSemaphore.wait()`, `Thread.sleep(forTimeInterval:)`, `Data(contentsOf:)` on large files.
+
 ---
 
 ## EntityStore API
@@ -274,7 +294,7 @@ public protocol SwiduxDispatcher<Action> {
 
 ## Effect / Send
 
-Swidux provides **generic** typealiases. Your app specializes them:
+Swidux provides **generic** types. Your app specializes them:
 
 ```swift
 // App/Effect.swift
@@ -282,13 +302,31 @@ typealias Send = Swidux.Send<AppAction>
 typealias Effect = Swidux.Effect<AppAction>
 ```
 
-An `Effect` is `@Sendable (@escaping Send) async -> Void`. It receives a `send` function to dispatch follow-up actions. Return `nil` from the reducer when no effect is needed.
+- `Send<Action>` is `@MainActor @Sendable (Action) -> Void` — hops to MainActor for each dispatched action.
+- `Effect<Action>` is a **struct** wrapping a `@Sendable` async closure. The body is `package`-access — downstream apps construct effects with `Effect { send in ... }` but cannot execute them directly.
+
+Return `nil` from the reducer when no effect is needed.
+
+### Running Effects with `runEffect`
+
+`SwiduxDispatcher` provides a `runEffect(_:send:)` method that uses `Task { @concurrent in }` to run the effect body off the MainActor. **Never use a bare `Task { }` to run effects** — inside an `@MainActor` class, `Task { }` inherits MainActor isolation, defeating the purpose. The `package`-access body prevents this at compile time.
+
+```swift
+// In AppStore.send():
+if let effect {
+    let send: Send<AppAction> = { [weak self] action in
+        self?.send(action)
+    }
+    runEffect(effect, send: send)
+}
+```
 
 ---
 
 ## Threading Model (Swift 6.2+ Approachable Concurrency)
 
 - **MainActor is default.** Package uses `DefaultIsolationMainActor` experimental feature. AppStore, reducers, views, effect helpers are all MainActor-isolated.
+- **Effects run off MainActor.** `runEffect(_:send:)` uses `Task { @concurrent in }` to run effect bodies on the cooperative thread pool. Dispatched actions hop back to MainActor via `Send`.
 - **DB actors run off MainActor.** `@ModelActor` provides isolated `ModelContext`.
 - **Minimize explicit `@MainActor`.** Only `AppStore` needs it explicitly in app code; the compiler infers the rest.
 - **`nonisolated init`** on value types to allow creation from any context.
