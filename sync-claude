@@ -1,0 +1,106 @@
+#!/usr/bin/env zsh
+set -euo pipefail
+
+SOURCE="/Users/sessions/.agents/skills"
+TARGET="/Users/sessions/.claude/skills"
+
+# Colors
+red()    { printf '\033[31m%s\033[0m\n' "$1" }
+green()  { printf '\033[32m%s\033[0m\n' "$1" }
+yellow() { printf '\033[33m%s\033[0m\n' "$1" }
+dim()    { printf '\033[2m%s\033[0m\n' "$1" }
+
+dry_run=false
+[[ "${1:-}" == "-n" || "${1:-}" == "--dry-run" ]] && dry_run=true && yellow "Dry run — no changes will be made."
+
+# Ensure both directories exist
+[[ -d "$SOURCE" ]] || { red "Source not found: $SOURCE"; exit 1; }
+mkdir -p "$TARGET"
+
+# Track what exists in source (skip non-skill entries)
+typeset -A source_skills
+for entry in "$SOURCE"/*(N/); do
+    name="${entry:t}"
+    # Skip hidden dirs, scripts, docs, and non-skill directories
+    [[ "$name" == .* ]] && continue
+    [[ -f "$entry/SKILL.md" ]] || continue
+    source_skills[$name]=1
+done
+
+# Phase 1: Adopt orphaned directory-based skills from target into source
+for entry in "$TARGET"/*(N/); do
+    name="${entry:t}"
+    [[ "$name" == .* ]] && continue
+    # Skip if it's already a symlink
+    [[ -L "$TARGET/$name" ]] && continue
+    # Skip workspace/temp dirs
+    [[ "$name" == *-workspace ]] && continue
+
+    if [[ -z "${source_skills[$name]:-}" ]]; then
+        # Not in source — adopt it
+        green "Adopting $name → source"
+        if ! $dry_run; then
+            cp -a "$TARGET/$name" "$SOURCE/$name"
+            rm -rf "$TARGET/$name"
+            ln -s "$SOURCE/$name" "$TARGET/$name"
+        fi
+        source_skills[$name]=1
+    else
+        # Collision — compare modification times
+        target_mtime=$(stat -f %m "$TARGET/$name/SKILL.md" 2>/dev/null || echo 0)
+        source_mtime=$(stat -f %m "$SOURCE/$name/SKILL.md" 2>/dev/null || echo 0)
+
+        if (( target_mtime > source_mtime )); then
+            yellow "Collision: $name — target is newer, replacing source"
+            if ! $dry_run; then
+                rm -rf "$SOURCE/$name"
+                cp -a "$TARGET/$name" "$SOURCE/$name"
+                rm -rf "$TARGET/$name"
+                ln -s "$SOURCE/$name" "$TARGET/$name"
+            fi
+        else
+            dim "Collision: $name — source is newer or equal, replacing target"
+            if ! $dry_run; then
+                rm -rf "$TARGET/$name"
+                ln -s "$SOURCE/$name" "$TARGET/$name"
+            fi
+        fi
+    fi
+done
+
+# Phase 2: Ensure every source skill has a symlink in target
+for name in ${(k)source_skills}; do
+    target_path="$TARGET/$name"
+
+    if [[ -L "$target_path" ]]; then
+        # Already a symlink — verify it points to the right place
+        link_dest=$(readlink "$target_path")
+        expected="$SOURCE/$name"
+        # Normalize: also accept relative paths
+        resolved=$(cd "$TARGET" && realpath "$link_dest" 2>/dev/null || echo "$link_dest")
+        if [[ "$resolved" != "$expected" && "$link_dest" != "$expected" ]]; then
+            yellow "Fixing symlink: $name (was → $link_dest)"
+            if ! $dry_run; then
+                rm "$target_path"
+                ln -s "$SOURCE/$name" "$target_path"
+            fi
+        fi
+    elif [[ ! -e "$target_path" ]]; then
+        green "Linking $name"
+        if ! $dry_run; then
+            ln -s "$SOURCE/$name" "$target_path"
+        fi
+    fi
+    # Directory case already handled in Phase 1
+done
+
+# Phase 3: Remove broken symlinks in target
+for entry in "$TARGET"/*(N@); do
+    if [[ ! -e "$entry" ]]; then
+        name="${entry:t}"
+        yellow "Removing broken symlink: $name"
+        $dry_run || rm "$entry"
+    fi
+done
+
+green "Done."

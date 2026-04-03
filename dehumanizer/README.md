@@ -1,6 +1,6 @@
 # Dehumanizer
 
-A writing skill that removes signs of AI-generated writing without making the output sound like a Wikipedia article or a therapy session.
+A writing skill that removes signs of AI-generated writing without making the output sound like a Wikipedia article or a sales pitch.
 
 Forked from [humanizer](https://github.com/blader/humanizer). Same detection, different voice.
 
@@ -18,7 +18,7 @@ cp -r dehumanizer/ .agent/skills/dehumanizer/
 |---|---|---|
 | **Detection** | 24 AI patterns | Same 24 patterns |
 | **Aggression** | Strips aggressively — kills em dashes, hedging, rule of three | Recalibrated — flags overuse, leaves appropriate use alone |
-| **Voice** | Millennial/Gen-Z — "I genuinely don't know how to feel" | Gen-X — deadpan, economical, dry |
+| **Voice** | Performative, overwrought | Deadpan, economical, dry |
 | **Output** | Tends toward encyclopedia entries | Matches the register of the input |
 
 ## 24 Patterns Detected
@@ -53,8 +53,8 @@ cp -r dehumanizer/ .agent/skills/dehumanizer/
 | 14 | Boldface overuse | Mechanical bolding of every noun |
 | 15 | Inline-header lists | "**Label:** content" bullet points |
 | 16 | Title case headings | "Strategic Negotiations And Partnerships" |
-| 17 | Emojis | 🚀 💡 ✅ decorating headings |
-| 18 | Curly quotes | \u201c...\u201d instead of "..." |
+| 17 | Emojis | Decorating headings and bullet points |
+| 18 | Curly quotes | Typographic quotes instead of straight quotes |
 
 ### Communication Patterns
 
@@ -74,15 +74,16 @@ cp -r dehumanizer/ .agent/skills/dehumanizer/
 
 ## Voice Anti-Patterns
 
-The dehumanizer also flags Millennial/Gen-Z writing patterns:
+The dehumanizer also flags performative writing patterns:
 
 - Emotional processing ("I genuinely don't know how to feel")
 - Performed vulnerability ("Here's what gets me...")
 - Permission-seeking ("Can we just talk about...")
 - Therapy-speak ("I want to hold space for...")
-- Generational slang ("FOMO," "problematic," "I'm cooked")
+- Trend slang ("FOMO," "problematic," "I'm cooked")
 - Conspiratorial intimacy ("Here's the thing nobody's saying...")
 
 ## Version History
 
+- **1.1.0** — Restructured: moved patterns to reference file, removed generational labels, trimmed SKILL.md from 537 to 172 lines.
 - **1.0.0** — Initial release. Forked from humanizer 2.1.1 with voice recalibration.

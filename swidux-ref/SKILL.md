@@ -1,6 +1,6 @@
 ---
 name: swidux-ref
-description: "Swidux architecture reference (Redux-style unidirectional data flow for SwiftUI + SwiftData). MANDATORY when adding actions, modifying reducers, creating Effects, working with AppStore/AppState, or scaffolding new apps. Activate on: 'scaffold', 'new project', 'create app', 'setup SwiftUI', 'add action', 'add reducer', 'modify reducer', 'dispatch', 'Swidux'."
+description: "Swidux architecture reference (Redux-style unidirectional data flow for SwiftUI + SwiftData). MANDATORY when adding actions, modifying reducers, creating Effects, working with AppStore/AppState, EntityStore, PersistenceMiddleware, StateWriter, UndoMiddleware, change tracking, or scaffolding new apps. Also use for controlled components, form bindings with store-bound state, the effect system, and undo/redo. Activate on: 'scaffold', 'new project', 'create app', 'setup SwiftUI', 'add action', 'add reducer', 'modify reducer', 'dispatch', 'Swidux', 'EntityStore', 'persistence', 'controlled component', 'form binding', 'effect', 'StateWriter', 'undo', 'redo', 'UndoMiddleware'."
 ---
 
 # Swidux Architecture Reference
@@ -17,6 +17,7 @@ Swidux provides the persistence middleware layer for apps that use unidirectiona
 | `ChangeSet` | Tracks which entity IDs were upserted or deleted |
 | `StateWriter<State>` | Drains changelogs and accumulates batched persistence work |
 | `PersistenceMiddleware<State>` | Debounced orchestrator that flushes writes after each reducer call |
+| `UndoMiddleware<State>` | Opt-in stack-based undo/redo for state snapshots |
 | `Effect<Action>` / `Send<Action>` | Generic typealiases for the async effect system |
 | `SwiduxReducer` | Protocol enforcing the reducer contract |
 | `SwiduxDispatcher` | Protocol enforcing the store dispatch contract |
@@ -82,7 +83,8 @@ struct ItemReducer: SwiduxReducer {
     ) -> Effect? {
         switch action {
         case .create(let name):
-            state.items[item.id] = Item(name: name)
+            let item = Item(name: name)
+            state.items[item.id] = item
         }
         return nil
     }
@@ -134,19 +136,29 @@ struct AppState: Sendable {
 }
 ```
 
-### 9. Guard `@Observable` Writes in `send()` with Equality Checks
-`@Observable` fires change notifications on every property `set`, even when the value is identical. Unconditional writes after every dispatch cause cascading SwiftUI re-renders that can create infinite loops. Always guard:
+### 9. Use the Snapshot Pattern in `send()` — No Manual Equality Guards
+`@Observable` checks `Equatable` on plain assignment (`set` accessor) and suppresses notifications when values are unchanged. **Explicit equality guards are unnecessary.** However, Swift's `_modify` accessor (used by `inout`) fires notifications unconditionally. Always use the snapshot pattern: copy state out, mutate the copy, assign back.
 
 ```swift
-if items != state.items { items = state.items }
-if ui != state.ui       { ui = state.ui }
+// ✅ Snapshot pattern — `set` accessor checks equality automatically
+var state = AppState(items: items, tags: tags, ui: ui)
+reducer.reduce(state: &state, action: action, environment: environment)
+items = state.items  // No notification if unchanged
+ui = state.ui
+
+// ❌ Never use inout on a stored @Observable property — _modify fires unconditionally
 ```
+
+**Cross-slice isolation requires separate stored properties.** A view reading `store.items` won't re-render when `store.ui` changes. A single `var state: AppState` would invalidate all observers on every change. This is why `send()` must live in app code, not the framework.
 
 ### 10. Use `merge(from:preferExisting:)` for Re-hydration, Not Replacement
 After initial startup, never assign a fresh `EntityStore(fromDB)` to a property — this destroys enriched in-memory state loaded lazily. Use `merge()` instead:
 
 ```swift
 var merged = EntityStore(allFromDB)
+// existing = entity from `existingStore` (the `from:` argument)
+// incoming = entity already in `merged` (self)
+// Return true to keep the `from:` entity, replacing the one in self
 merged.merge(from: existingStore) { existing, incoming in
     existing.richData != nil && incoming.richData == nil
 }
@@ -182,10 +194,11 @@ Common offenders: `Process.waitUntilExit()`, `DispatchSemaphore.wait()`, `Thread
 ```swift
 var cards = EntityStore<Card>()
 
-// Insert or update — automatically recorded
+// Insert or update — always records an upsert, even if value is identical
 cards[card.id] = card
 
-// In-place mutation — automatically recorded
+// In-place mutation — recorded only if the value actually changes (checks Equatable)
+// Prefer modify over subscript set when the transform might be a no-op
 cards.modify(card.id) { $0.title = "New Title" }
 
 // Delete — automatically recorded
@@ -205,7 +218,24 @@ cards.removeAll { $0.isArchived }
 cards = EntityStore(arrayFromDB)
 ```
 
-Every mutation is silently tracked in a `ChangeSet`. You never interact with the `ChangeSet` directly — the middleware drains it after each reducer call.
+`modify` uses `Equatable` to skip recording when the transform doesn't change the value. `sort` only marks entities whose position actually changed — sorting an already-sorted store is a no-op for persistence. `removeAll(where:)` rebuilds the index once in O(n) rather than per-removal.
+
+Every mutation is silently tracked in `changes: ChangeSet` (read-only property). The middleware drains changes via `resetChanges()` after each reducer call — you never call either of these yourself.
+
+### restore(from:)
+
+`restore(from:)` replaces all entities with those from a source store while recording the diff as changes for persistence. Used by undo/redo so the persistence middleware picks up the restored state.
+
+```swift
+// In applySnapshot (undo/redo):
+var state = AppState(items: items, tags: tags, ui: ui)
+state.items.restore(from: restored.items)  // records upserts + deletions
+state.tags.restore(from: restored.tags)
+state.ui = restored.ui                     // plain state — assign directly
+persistence.afterReduce(state: &state)     // drains changes normally
+```
+
+Unlike `merge(from:)` (hydration, no changes recorded), `restore` records every difference.
 
 ---
 
@@ -225,16 +255,31 @@ PersistenceMiddleware<AppState>(
             for id in deletes  { try? await itemDB.delete(id: id) }
         },
     ],
-    debounce: .milliseconds(250)  // Default; configurable
+    debounce: .milliseconds(250),  // Default; configurable
+    loopThreshold: 100,            // Warns if afterReduce called this many times per debounce interval
+    logger: environment.logger
 )
 ```
 
+The middleware tracks how many times `afterReduce` fires per debounce interval. If it exceeds `loopThreshold` (default 100), it logs a warning — this usually means `AppStore.send()` is not using the snapshot pattern from Rule #9, causing an infinite dispatch loop.
+
 Call `persistence.afterReduce(state: &state)` after every reducer invocation from `AppStore.send()`.
+
+### Explicit Flush on Shutdown
+
+The debounce timer means writes can be buffered when the app terminates. Call `flush()` during shutdown to ensure no data is lost:
+
+```swift
+// In AppStore or App lifecycle:
+await persistence.flush()
+```
+
+`flush()` cancels the active debounce timer and immediately persists all pending writes. Call it from `applicationWillTerminate`, `scenePhase == .background`, or any other shutdown path.
 
 ### Writer Ordering
 
 > [!WARNING]
-> **Writers flush sequentially in registration order.** If entity B holds a foreign-key reference to entity A, the writer for A **must** appear before the writer for B. Otherwise, B's upsert will look up A's row before it exists, silently dropping the relationship.
+> **Writers flush sequentially in registration order (not in parallel).** If entity B holds a foreign-key reference to entity A, the writer for A **must** appear before the writer for B. Otherwise, B's upsert will look up A's row before it exists, silently dropping the relationship. Sequential flushing is what makes this ordering guarantee work.
 
 The rule is **leaves first, aggregates last**:
 
@@ -255,6 +300,43 @@ private func findOrCreateImageAsset(_ asset: ImageAsset) throws -> ImageAssetMod
     return model
 }
 ```
+
+---
+
+## Undo/Redo
+
+`UndoMiddleware<State>` is opt-in. It captures `AppState` snapshots before undoable actions and restores them on undo/redo. Memory-based (lost on relaunch), but restored state is persisted via `EntityStore.restore(from:)`.
+
+```swift
+@MainActor
+public final class UndoMiddleware<State: Equatable & Sendable> {
+    public init(maxDepth: Int = .max)
+
+    public var canUndo: Bool
+    public var canRedo: Bool
+
+    /// Call before reducer for undoable actions.
+    /// coalescing: true groups consecutive calls (e.g. keystrokes) into one entry.
+    public func willReduce(state: State, coalescing: Bool = false)
+
+    /// Returns restored state, or nil if stack is empty.
+    public func undo(current: State) -> State?
+    public func redo(current: State) -> State?
+}
+```
+
+### Integration in AppStore
+
+1. Add `undoMiddleware`, `canUndo`/`canRedo` observable properties
+2. Classify actions with `isUndoable` and `isCoalescing` computed properties on `AppAction`
+3. Call `undoMiddleware.willReduce(state:coalescing:)` before the reducer in `send()` for undoable actions
+4. Add `undo()`/`redo()` methods using `applySnapshot()` with `EntityStore.restore(from:)`
+5. Call `syncUndoState()` after every `send()`, `undo()`, and `redo()`
+6. Wire platform UI: macOS `.commands { CommandGroup(replacing: .undoRedo) }`, iOS `UndoManager` bridge via `@Environment(\.undoManager)`
+
+### Coalescing
+
+`willReduce(coalescing: true)` pushes on the first call, skips subsequent consecutive coalescing calls. A non-coalescing call or undo/redo resets the flag. Use for per-keystroke text edits (`setName`, `rename`).
 
 ---
 
@@ -303,21 +385,23 @@ typealias Effect = Swidux.Effect<AppAction>
 ```
 
 - `Send<Action>` is `@MainActor @Sendable (Action) -> Void` — hops to MainActor for each dispatched action.
-- `Effect<Action>` is a **struct** wrapping a `@Sendable` async closure. The body is `package`-access — downstream apps construct effects with `Effect { send in ... }` but cannot execute them directly.
+- `Effect<Action>` is a typealias for a `@Sendable` async closure. Reducers return plain closures; tests call them directly.
 
 Return `nil` from the reducer when no effect is needed.
 
-### Running Effects with `runEffect`
+### Running Effects
 
-`SwiduxDispatcher` provides a `runEffect(_:send:)` method that uses `Task { @concurrent in }` to run the effect body off the MainActor. **Never use a bare `Task { }` to run effects** — inside an `@MainActor` class, `Task { }` inherits MainActor isolation, defeating the purpose. The `package`-access body prevents this at compile time.
+Use `Task { @concurrent in }` to run effects off the MainActor. **Never use a bare `Task { }`** — inside an `@MainActor` class it inherits MainActor isolation, keeping the entire effect on the main thread.
 
 ```swift
 // In AppStore.send():
 if let effect {
-    let send: Send<AppAction> = { [weak self] action in
+    let send: Send = { [weak self] action in
         self?.send(action)
     }
-    runEffect(effect, send: send)
+    Task { @concurrent in
+        await effect(send)
+    }
 }
 ```
 
@@ -325,14 +409,14 @@ if let effect {
 
 ## Threading Model (Swift 6.2+ Approachable Concurrency)
 
-- **MainActor is default.** Package uses `DefaultIsolationMainActor` experimental feature. AppStore, reducers, views, effect helpers are all MainActor-isolated.
-- **Effects run off MainActor.** `runEffect(_:send:)` uses `Task { @concurrent in }` to run effect bodies on the cooperative thread pool. Dispatched actions hop back to MainActor via `Send`.
+- **All isolation is explicit.** No implicit `DefaultIsolationMainActor` — each type declares its own isolation. AppStore, reducers, views, effect helpers are MainActor-isolated in app code.
+- **Effects run off MainActor.** `Task { @concurrent in }` runs effect bodies on the cooperative thread pool. Dispatched actions hop back to MainActor via `Send`.
 - **DB actors run off MainActor.** `@ModelActor` provides isolated `ModelContext`.
 - **Minimize explicit `@MainActor`.** Only `AppStore` needs it explicitly in app code; the compiler infers the rest.
 - **`nonisolated init`** on value types to allow creation from any context.
 - `EntityStore` and `ChangeSet` are `nonisolated` value types conforming to `Sendable`.
-- `PersistenceMiddleware` is `@MainActor`-isolated (manages a debounce `Task`).
-- Package uses `.swiftLanguageMode(.v6)` + `.enableExperimentalFeature("DefaultIsolationMainActor")`.
+- `StateWriter` and `PersistenceMiddleware` are both `@MainActor`-isolated (manage mutable buffers and a debounce `Task`).
+- Package uses `.swiftLanguageMode(.v6)`.
 
 ---
 
