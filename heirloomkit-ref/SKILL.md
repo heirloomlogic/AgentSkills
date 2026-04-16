@@ -1,6 +1,6 @@
 ---
 name: heirloomkit-ref
-description: "HeirloomKit component and modifier reference for all Heirloom Logic SwiftUI projects. Use whenever writing, reviewing, or modifying UI code in any project that imports HeirloomKit — including glass frames, capsule bars, typography, color tokens, spacing, toolbar chrome, content fade, noise overlays, cursor handling, and button styles. Triggers on: HeirloomKit, glassFrame, GlassSection, CapsuleBar, heirloomSans, heirloomSerif, heirloomMono, contentFade, floatingToolbar, noiseOverlay, pointingHandCursor, HeirloomButtonStyle, surfacePrimary, textPrimary, FontScaleManager, AppearanceManager. Also use when the project's Package.swift depends on HeirloomKit, even if the user doesn't mention it by name."
+description: "HeirloomKit component and modifier reference for all Heirloom Logic SwiftUI projects. Use whenever writing, reviewing, or modifying UI code in any project that imports HeirloomKit — including glass frames, capsule bars, typography, color tokens, spacing, toolbar chrome, content fade, noise overlays, cursor handling, and button styles. Triggers on: HeirloomKit, glassFrame, GlassSection, CapsuleBar, heirloomSans, heirloomSerif, heirloomMono, contentFade, floatingToolbar, noiseOverlay, pointingHandCursor, HeirloomButtonStyle, surfacePrimary, textPrimary, FontScaleManager, AppearanceManager, selectionPopover, SelectionPopover, locationSearchPopover, LocationSearchPopover, LocationResult, KeyboardSearchField. Also use when the project's Package.swift depends on HeirloomKit, even if the user doesn't mention it by name."
 ---
 
 # HeirloomKit Reference
@@ -11,7 +11,7 @@ Quick-reference for building UI with HeirloomKit. Organized by what you need to 
 
 This file covers conventions, gotchas, and common patterns. For full API signatures and parameter lists, read the relevant reference file:
 
-- `references/components.md` — GlassFrame, GlassSection, HeirloomButtonStyle (`.heirloom`), CapsuleBar, NoiseOverlay, ContentFade, FloatingToolbar, PointingHandCursor, DividedVStack
+- `references/components.md` — GlassFrame, GlassSection, HeirloomButtonStyle (`.heirloom`), CapsuleBar, NoiseOverlay, ContentFade, FloatingToolbar, PointingHandCursor, DividedVStack, SelectionPopover, LocationSearchPopover, LocationResult, KeyboardSearchField
 - `references/typography.md` — Fonts, view modifiers, font scale, variant enums, Core Text access
 - `references/tokens.md` — Colors, spacing constants, padding helpers
 
@@ -128,6 +128,20 @@ Do not apply `.heirloom` or any custom ButtonStyle to buttons inside `ToolbarIte
 }
 ```
 
+### Large Glass Frames Glitch
+
+The liquid glass material (`glassEffect`) can produce visual artifacts on very large views — full-page documents, tall scrollable content panes, etc. When a `.glassFrame` view is too large for the material to render cleanly, switch to `.solid(color)`:
+
+```swift
+// Before — glitches on large content
+documentContent.glassFrame(depth: .shadow(.soft))
+
+// After — same clipping, border, and shadow, no material
+documentContent.glassFrame(fill: .solid(.surfaceSecondary))
+```
+
+`.solid` is a drop-in replacement: shape clipping, etched borders, content inset, and depth effects all work identically.
+
 ### Cursor: Do Not Rewrite
 
 `pointingHandCursor()` uses `.onContinuousHover` + `NSCursor.push()/pop()` on macOS. Do NOT replace this with `resetCursorRects`/`addCursorRect` via NSViewRepresentable. The NSViewRepresentable approach has a ~10% failure rate when clicking and moving between adjacent cursor views due to timing gaps during SwiftUI layout passes.
@@ -186,6 +200,18 @@ Button { toggle() } label: {
     Image(systemName: "plus").frame(width: 32, height: 32)
 }
 .buttonStyle(.heirloom(shape: .disc))
+```
+
+For tinted or solid fill buttons, foreground color and content shadow are set automatically based on fill luminance — no need to set `.foregroundStyle(...)` manually:
+
+```swift
+// Dark fill → white text, dark shadow (automatic)
+Button("Cast") { cast() }
+    .buttonStyle(.heirloom(fill: .tinted(Color(red: 0.6, green: 0.45, blue: 0.25))))
+
+// Light fill → textPrimary text, light shadow (automatic)
+Button("Light") { action() }
+    .buttonStyle(.heirloom(fill: .solid(.surfacePrimary)))
 ```
 
 For non-button interactive views, add `.contentShape()` before `.pointingHandCursor()`:
@@ -255,6 +281,44 @@ NavigationSplitView {
 }
 ```
 
+### Selection Popover
+
+Attach to a button that shows the current value. The popover handles keyboard navigation and auto-dismisses:
+
+```swift
+Button(currentLevel.displayName) { showPicker = true }
+    .selectionPopover(
+        isPresented: $showPicker,
+        items: FastingLevel.allCases,
+        current: currentLevel,
+        accentColor: .burnishedBrass,
+        displayName: \.displayName
+    ) { selected in
+        currentLevel = selected
+    }
+```
+
+`Item` must conform to `Identifiable & Equatable`.
+
+### Location Search Popover
+
+Self-contained location picker with MapKit typeahead and current-location support. Returns a `LocationResult` struct:
+
+```swift
+Button(locationName) { showSearch = true }
+    .locationSearchPopover(
+        isPresented: $showSearch,
+        accentColor: .burnishedBrass
+    ) { location in
+        locationName = location.name
+        latitude = location.latitude
+        longitude = location.longitude
+        timeZone = location.timeZoneIdentifier
+    }
+```
+
+Requires `NSLocationWhenInUseUsageDescription` in Info.plist for "Use Current Location".
+
 ### Appearance Switcher
 
 ```swift
@@ -310,6 +374,9 @@ Button { fontScaleManager.increase() } label: {
 | `.standard` | 8 pt | General spacing, default padding |
 | `.relaxed` | 12 pt | Card padding, default corner radius |
 | `.spacious` | 16 pt | Section gaps, generous insets |
+| `.generous` | 24 pt | Page margins, large card gaps |
+| `.expansive` | 32 pt | Major section dividers, hero spacing |
+| `.vast` | 48 pt | Full-bleed regions, page-level separation |
 
 ```swift
 VStack(spacing: .relaxed) { ... }

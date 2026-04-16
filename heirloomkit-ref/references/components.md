@@ -11,17 +11,21 @@
 - [FloatingToolbar](#floatingtoolbar)
 - [NoiseOverlay](#noiseoverlay)
 - [PointingHandCursor](#pointinghandcursor)
+- [SelectionPopover](#selectionpopover)
+- [LocationSearchPopover](#locationsearchpopover)
+- [LocationResult](#locationresult)
+- [KeyboardSearchField](#keyboardsearchfield)
 
 ---
 
 ## GlassFrame
 
-Clips content to a shape, fills with material, renders an optional etched border, and applies a depth effect.
+Clips content to a shape, fills with material or a solid color, renders an optional etched border, and applies a depth effect.
 
 ```swift
 .glassFrame(
     shape: GlassBackgroundShape = .roundedRectangle(),
-    tint: Color? = nil,
+    fill: GlassFrameFill = .glass,
     etched: Bool = true,
     contentInset: Bool = true,
     depth: GlassDepthStyle = .shadow(.soft)
@@ -40,6 +44,18 @@ enum GlassBackgroundShape: Sendable {
 ```
 
 Static constant: `GlassBackgroundShape.contentInsetAmount = 1.25` pt
+
+### GlassFrameFill
+
+```swift
+enum GlassFrameFill: Sendable {
+    case glass              // liquid glass with adaptive auto-tint
+    case tinted(Color)      // liquid glass with custom tint
+    case solid(Color)       // flat color, no material
+}
+```
+
+The liquid glass material can glitch visually on very large views (e.g., full-page document layouts). Use `.solid(color)` as a drop-in replacement — it preserves shape clipping, etched borders, and depth effects without the material.
 
 ### GlassDepthStyle
 
@@ -60,15 +76,15 @@ enum ShadowIntensity: Sendable {
 ### Parameters
 
 - `shape` — Clipping shape. Default rounded rectangle with 12pt corners.
-- `tint` — Optional color overlay. Nil uses an adaptive dark/light default.
+- `fill` — Background fill style. Default `.glass`. Use `.tinted(color)` for custom glass tints, `.solid(color)` for large views where the glass material glitches.
 - `etched` — Thin border for edge visibility on iOS 26+. Default true. Set false when floating over a contrasting surface.
 - `contentInset` — Clips content 1.25pt inside the glass edge. Default true. Set false for edge-to-edge content like images.
 - `depth` — Shadow or glow behind the frame. Default `.shadow(.soft)`.
 
 ### Platform behavior
 
-- iOS 26+ / macOS 26+: Uses `.glassEffect(.regular)` with optional etched border
-- Earlier: Falls back to `.ultraThinMaterial` with stroke border
+- **`.glass` / `.tinted`:** iOS 26+ / macOS 26+ uses `.glassEffect(.regular)` with optional etched border. Earlier falls back to `.ultraThinMaterial` with stroke border.
+- **`.solid`:** All platforms use a simple color fill. No material, no platform-specific behavior.
 
 ---
 
@@ -83,7 +99,7 @@ ButtonStyle wrapping labels in a glass frame with cursor, press feedback, and ho
 // Customized (static method)
 .buttonStyle(.heirloom(
     shape: GlassBackgroundShape = .capsule,
-    tint: Color? = nil,
+    fill: GlassFrameFill = .glass,
     padding: HeirloomButtonPadding = .spaciousRelaxed,
     contentShadow: Bool = true
 ))
@@ -102,11 +118,20 @@ enum HeirloomButtonPadding: Sendable {
 }
 ```
 
+### Auto-Contrast for Tinted and Solid Fills
+
+When `fill` is `.tinted(color)` or `.solid(color)`, the button automatically selects foreground text color and content shadow based on the fill color's luminance:
+
+- **Dark fill** (luminance < 0.5) → white text, dark shadow (black 0.25)
+- **Light fill** (luminance ≥ 0.5) → `.textPrimary` text, light shadow (white 0.45)
+
+For `.glass` fills, no automatic foreground is applied — the caller controls the text color, and the content shadow follows `colorScheme` as usual.
+
 ### Feedback
 
 - Press: scale 0.97, opacity 0.85 (0.15s snappy)
 - Hover: brightness +0.05
-- Content shadow: dark mode black 0.25, light mode white 0.45
+- Content shadow: follows auto-contrast for tinted/solid fills; dark mode black 0.25 / light mode white 0.45 for glass
 - Includes pointing-hand cursor automatically
 
 ---
@@ -119,6 +144,7 @@ Titled section container over a glass panel. Replaces `Form`/`Section` for full 
 GlassSection(
     _ title: String? = nil,
     spacing: CGFloat = .standard,
+    fill: GlassFrameFill = .glass,
     etched: Bool = true,
     @ViewBuilder content: @escaping () -> Content
 )
@@ -128,6 +154,7 @@ GlassSection(
 
 - `title` — Optional uppercase header rendered inside the glass panel with `.heirloomSans(13, .medium)`, 1pt letter spacing, background fill at textPrimary 0.04 with 0.25 noise.
 - `spacing` — Vertical spacing between content items. Default `.standard` (8pt).
+- `fill` — Background fill style forwarded to the internal `.glassFrame()`. Default `.glass`.
 - `etched` — Glass edge border. Default true.
 
 When titled: relaxed padding + content inset. When untitled: content only, no inset.
@@ -291,3 +318,157 @@ Cross-platform pointing-hand cursor for interactive elements.
 ### Important
 
 Do NOT rewrite to use NSViewRepresentable with `resetCursorRects`/`addCursorRect`. That approach causes ~10% cursor failure rate. See Gotchas in SKILL.md.
+
+---
+
+## SelectionPopover
+
+Generic popover for choosing one item from a list. Highlights the current selection, supports full keyboard navigation, and auto-dismisses on selection.
+
+```swift
+.selectionPopover<Item: Identifiable & Equatable>(
+    isPresented: Binding<Bool>,
+    items: [Item],
+    current: Item,
+    accentColor: Color = .blue,
+    displayName: KeyPath<Item, String>,
+    onSelect: @escaping (Item) -> Void
+) -> some View
+```
+
+### Parameters
+
+- `isPresented` — Binding that controls popover visibility.
+- `items` — The items to display as selectable rows.
+- `current` — The currently selected item (highlighted with a tinted fill).
+- `accentColor` — Tint color for the selected/highlighted item. Default `.blue`.
+- `displayName` — Key path to the display string on each item.
+- `onSelect` — Called when the user taps or confirms an item.
+
+### Keyboard Navigation
+
+- **Up/Down arrows** — Move highlight through items (clamped to bounds).
+- **Tab / Shift-Tab** — Move highlight down / up.
+- **Return / Space** — Confirm the highlighted item.
+- **Escape** — Dismiss the popover.
+
+Highlight starts on the currently selected item.
+
+### Fill Tiers
+
+Each row uses `HeirloomButtonStyle` with a fill determined by its state:
+
+| State | Fill |
+|---|---|
+| Highlighted (keyboard focus) | `.tinted(accentColor.opacity(0.15))` |
+| Selected (current item, not highlighted) | `.tinted(accentColor.opacity(0.08))` |
+| Normal | `.glass` |
+
+### Layout
+
+- Width: 280pt
+- Uses `.presentationCompactAdaptation(.popover)` for consistent popover behavior on all platforms.
+
+---
+
+## LocationSearchPopover
+
+Self-contained location search popover. Handles MapKit typeahead search, CoreLocation current-location resolution, keyboard navigation, and dismissal. The client receives a `LocationResult` without managing any search state.
+
+```swift
+.locationSearchPopover(
+    isPresented: Binding<Bool>,
+    accentColor: Color = .blue,
+    onSelect: @escaping (LocationResult) -> Void
+) -> some View
+```
+
+### Parameters
+
+- `isPresented` — Binding that controls popover visibility.
+- `accentColor` — Tint color for the highlighted result row and search field caret. Default `.blue`.
+- `onSelect` — Called when the user selects a location (via search result or current location).
+
+### Features
+
+- **Typeahead search** — Uses `MKLocalSearchCompleter` for city/region autocomplete.
+- **Current location** — "Use Current Location" button resolves coordinates via `CLLocationManager` and reverse geocodes a display name.
+- **Keyboard navigation** — Arrow keys, tab, return, and escape via an internal `KeyboardSearchField`.
+- **Auto-dismiss** — Popover closes and search state resets when a location is selected or the popover disappears.
+
+### Info.plist Requirement
+
+Apps that use the "Use Current Location" feature must include `NSLocationWhenInUseUsageDescription` in their Info.plist.
+
+### Layout
+
+- Width: 280pt
+- Uses `.presentationCompactAdaptation(.popover)`.
+
+---
+
+## LocationResult
+
+A geocoded location returned by `locationSearchPopover`. Plain struct — clients do not need to import CoreLocation or MapKit.
+
+```swift
+struct LocationResult: Sendable, Equatable {
+    let name: String                    // e.g. "Denver, CO"
+    let latitude: Double
+    let longitude: Double
+    let timeZoneIdentifier: String?     // IANA identifier, e.g. "America/Denver"
+
+    init(
+        name: String,
+        latitude: Double,
+        longitude: Double,
+        timeZoneIdentifier: String? = nil
+    )
+}
+```
+
+### Properties
+
+- `name` — Display name (e.g. "Denver, CO").
+- `latitude` — Latitude of this location.
+- `longitude` — Longitude of this location.
+- `timeZoneIdentifier` — IANA time zone identifier (e.g. "America/Denver"), or `nil` when the system cannot determine the time zone.
+
+---
+
+## KeyboardSearchField
+
+A text field that intercepts keyboard navigation events at the platform level, routing them to SwiftUI callbacks.
+
+```swift
+KeyboardSearchField(
+    text: Binding<String>,
+    placeholder: String = "Search",
+    accentColor: Color = .blue,
+    focusOnAppear: Bool = true,
+    onSubmit: @escaping () -> Void = {},
+    onEscape: @escaping () -> Void = {},
+    onUpArrow: @escaping () -> Void = {},
+    onDownArrow: @escaping () -> Void = {},
+    onTab: @escaping () -> Void = {},
+    onShiftTab: @escaping () -> Void = {}
+)
+```
+
+### Parameters
+
+- `text` — Binding to the search query string.
+- `placeholder` — Placeholder text shown when the field is empty. Default `"Search"`.
+- `accentColor` — Color for the insertion point caret (macOS only). Default `.blue`.
+- `focusOnAppear` — Whether the field becomes first responder on appear. Default `true`.
+- `onSubmit` — Called when the user presses Return.
+- `onEscape` — Called when the user presses Escape.
+- `onUpArrow` — Called when the user presses the up arrow key.
+- `onDownArrow` — Called when the user presses the down arrow key.
+- `onTab` — Called when the user presses Tab.
+- `onShiftTab` — Called when the user presses Shift-Tab.
+
+### Platform behavior
+
+- **macOS:** `NSViewRepresentable` wrapping `NSTextField`. Captures arrow keys, tab, shift-tab, escape, and return at the AppKit level via `NSTextFieldDelegate.control(_:textView:doCommandBy:)`.
+- **iOS:** Plain `TextField` with `.onSubmit`. Arrow key, tab, and escape callbacks are unavailable on this platform.

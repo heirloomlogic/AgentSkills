@@ -29,6 +29,15 @@ Adaptive light/dark colors defined in sRGB. No asset catalog needed.
 | `.surfaceSecondary` | `#F2EFE9` | `#2C2C2E` | Cards, panels |
 | `.surfaceTertiary` | `#E8E4DD` | `#48484A` | Grouped rows |
 
+### Luminance Utilities
+
+Internal helpers on `Color` for contrast decisions (used by `HeirloomButtonStyle`):
+
+- `relativeLuminance: Double` — WCAG relative luminance (0 = black, 1 = white), resolved via platform color APIs (`NSColor`/`UIColor`) in sRGB.
+- `isDark: Bool` — `true` when `relativeLuminance < 0.5`.
+
+These are `internal` — not part of the public API.
+
 ### Adaptive Color Init
 
 For custom adaptive colors outside the built-in palette:
@@ -54,6 +63,9 @@ Static properties on `CGFloat`:
 | `.standard` | 8 pt | General-purpose spacing, padding, small corner radii |
 | `.relaxed` | 12 pt | Content margins, card padding, default corner radii |
 | `.spacious` | 16 pt | Section gaps, layout regions, generous insets |
+| `.generous` | 24 pt | Page margins, large card gaps, wide insets |
+| `.expansive` | 32 pt | Major section dividers, hero spacing |
+| `.vast` | 48 pt | Full-bleed regions, page-level separation |
 
 ```swift
 VStack(spacing: .relaxed) { ... }

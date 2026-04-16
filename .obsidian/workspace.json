@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "swidux-ref/swidux-patterns.md",
+                "file": "free-tool-strategy/SKILL.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "swidux-patterns"
+              "title": "SKILL"
             }
           }
         ]
@@ -185,7 +185,12 @@
   },
   "active": "ee9b42bb1ecb16b3",
   "lastOpenFiles": [
-    "swidux-ref/SKILL.md",
-    "swidux-ref/swidux-patterns.md"
+    "free-tool-strategy/references/tool-types.md",
+    "free-tool-strategy/SKILL.md",
+    "content-strategy/SKILL.md",
+    "product-marketing-context/SKILL.md",
+    "marketing-psychology/SKILL.md",
+    "swidux-ref/swidux-patterns.md",
+    "swidux-ref/SKILL.md"
   ]
 }
